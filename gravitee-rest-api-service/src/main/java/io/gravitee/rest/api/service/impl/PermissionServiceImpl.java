@@ -15,20 +15,14 @@
  */
 package io.gravitee.rest.api.service.impl;
 
-import io.gravitee.repository.management.model.MembershipDefaultReferenceId;
-import io.gravitee.repository.management.model.MembershipReferenceType;
-import io.gravitee.rest.api.model.RoleEntity;
+import io.gravitee.rest.api.model.MemberEntity;
+import io.gravitee.rest.api.model.MembershipReferenceType;
 import io.gravitee.rest.api.model.permissions.RolePermission;
 import io.gravitee.rest.api.model.permissions.RolePermissionAction;
 import io.gravitee.rest.api.service.*;
-import io.gravitee.rest.api.service.exceptions.ApiNotFoundException;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
-
-import java.util.Collections;
-import java.util.Optional;
-import java.util.Set;
 
 /**
  * @author Nicolas GERAUD(nicolas.geraud at graviteesource.com)
@@ -41,64 +35,29 @@ public class PermissionServiceImpl extends AbstractService implements Permission
     MembershipService membershipService;
 
     @Autowired
-    ApiService apiService;
-
-    @Autowired
-    ApplicationService applicationService;
-
-    @Autowired
     RoleService roleService;
 
     @Override
     public boolean hasPermission(RolePermission permission, String referenceId, RolePermissionAction... acls) {
-        Optional<String> optionalReferenceId = Optional.ofNullable(referenceId);
         MembershipReferenceType membershipReferenceType;
-        MembershipReferenceType groupMembershipReferenceType = null;
-        io.gravitee.repository.management.model.RoleScope repoRoleScope;
         switch (permission.getScope()) {
-            case MANAGEMENT:
-                membershipReferenceType = MembershipReferenceType.MANAGEMENT;
-                repoRoleScope = io.gravitee.repository.management.model.RoleScope.MANAGEMENT;
-                break;
-            case PORTAL:
-                membershipReferenceType = MembershipReferenceType.PORTAL;
-                repoRoleScope = io.gravitee.repository.management.model.RoleScope.PORTAL;
-                break;
             case API:
                 membershipReferenceType = MembershipReferenceType.API;
-                groupMembershipReferenceType = MembershipReferenceType.GROUP;
-                repoRoleScope = io.gravitee.repository.management.model.RoleScope.API;
                 break;
             case APPLICATION:
                 membershipReferenceType = MembershipReferenceType.APPLICATION;
-                groupMembershipReferenceType = MembershipReferenceType.GROUP;
-                repoRoleScope = io.gravitee.repository.management.model.RoleScope.APPLICATION;
+                break;
+            case ENVIRONMENT:
+                membershipReferenceType = MembershipReferenceType.ENVIRONMENT;
                 break;
             default:
                 membershipReferenceType = null;
-                repoRoleScope = null;
         }
-        Set<RoleEntity> roles = Collections.emptySet();
-        RoleEntity firstDegreeRole = membershipService.getRole(membershipReferenceType, optionalReferenceId.orElse(MembershipDefaultReferenceId.DEFAULT.name()), getAuthenticatedUsername(), repoRoleScope);
-        if (firstDegreeRole != null) {
-            roles = Collections.singleton(firstDegreeRole);
-        } else if (groupMembershipReferenceType != null) {
-            Set<String> groups;
-            try {
-                groups = apiService.findById(referenceId).getGroups();
-            } catch (ApiNotFoundException | IllegalArgumentException ane) {
-                groups = applicationService.findById(referenceId).getGroups();
-            }
-
-            if (groups != null && !groups.isEmpty()) {
-                roles = membershipService.getRoles(groupMembershipReferenceType, groups, getAuthenticatedUsername(), repoRoleScope);
-            }
+        
+        MemberEntity member = membershipService.getUserMember(membershipReferenceType, referenceId, getAuthenticatedUsername());
+        if (member == null ) {
+            return false;
         }
-        for (RoleEntity roleEntity : roles) {
-            if (roleService.hasPermission(roleEntity.getPermissions(), permission.getPermission(), acls)) {
-                return true;
-            }
-        }
-        return false;
+        return roleService.hasPermission(member.getPermissions(), permission.getPermission(), acls);
     }
 }
